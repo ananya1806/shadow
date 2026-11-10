@@ -115,13 +115,20 @@ def split_half_fingerprints(f, rng):
     return standardize(raw_fingerprint(x[x["half"] == 0]), raw_fingerprint(x[x["half"] == 1]))
 
 
-def split_half_test(f):
-    """Is a WR's half-A fingerprint closest (cosine) to his own half-B fingerprint?"""
+def split_half_test(f, drop=()):
+    """Is a WR's half-A fingerprint closest (cosine) to his own half-B fingerprint?
+
+    drop: feature names to leave out of the fingerprint (ablation), e.g. ["route_time"].
+    "has_cut" removes cut_rate. The default uses every column.
+    """
     rng = np.random.default_rng(SEED)
     team = f.groupby("nflId")["team"].agg(lambda t: t.mode().iat[0])
+    drop = {"cut" if c == "has_cut" else c for c in drop}
     rows = []
     for _ in range(HALF_REPEATS):
         a, b = split_half_fingerprints(f, rng)
+        keep = [c for c in a.columns if c.rsplit("_", 1)[0] not in drop]
+        a, b = a[keep], b[keep]
         sim = cosine_similarity(a, b)                         # rows: A, cols: B
         rank = (sim > np.diag(sim)[:, None]).sum(axis=1)      # 0 = himself is closest
         t = team.loc[a.index].to_numpy()

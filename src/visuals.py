@@ -26,6 +26,8 @@ import plotly.graph_objects as go
 from scipy.stats import spearmanr
 from sklearn.decomposition import PCA
 
+import fingerprint as fpr
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs"
 SEED = 0
@@ -69,6 +71,12 @@ RADAR = {
 
 
 # ------------------------------------------------------------------ loading
+def load_training():
+    """Just the per-route training table (needs only load_data.py + features.py)."""
+    names = pd.read_csv(fpr.PLAYERS_FILE, usecols=["nflId", "displayName"])
+    return {"feats": pd.read_parquet(OUT / "route_features.parquet").merge(names, on="nflId")}
+
+
 def load():
     d = {
         "z": pd.read_csv(OUT / "wr_fingerprints.csv"),
@@ -79,6 +87,8 @@ def load():
         "clf": pd.read_csv(OUT / "classifier_summary.csv"),
     }
     d["ids"] = d["z"].set_index("displayName")["nflId"]
+    names = pd.read_csv(fpr.PLAYERS_FILE, usecols=["nflId", "displayName"])
+    d["feats"] = pd.read_parquet(OUT / "route_features.parquet").merge(names, on="nflId")
     return d
 
 
@@ -171,49 +181,66 @@ def wr_map(d):
 
 
 # ---------------------------------------------------------------- 2. radar
-def radar(d, star, double):
+def percentiles(d):
+    """Radar traits as percentiles (0-100) among the 110 fingerprinted WRs."""
     raw = d["raw"].set_index("displayName")
-    pct = {}
-    for label, (col, sign) in RADAR.items():
-        pct[label] = (sign * raw[col]).rank(pct=True) * 100
-    pct = pd.DataFrame(pct)
-    a, b = pct.loc[star].to_numpy(), pct.loc[double].to_numpy()
-    sim = d["pairs"].query("displayName == @star and match_displayName == @double")["similarity"].iloc[0]
-    gap = np.abs(a - b)
+    return pd.DataFrame({label: (sign * raw[col]).rank(pct=True) * 100
+                         for label, (col, sign) in RADAR.items()})
 
+
+def pair_sim(d, star, other):
+    hit = d["pairs"].query("displayName == @star and match_displayName == @other")
+    return hit["similarity"].iloc[0] if len(hit) else np.nan
+
+
+def draw_radar(ax, a, b, star, other, small=False):
+    """Star (blue) vs another WR (orange) on one polar axis."""
     labels = list(RADAR)
     ang = np.linspace(0, 2 * np.pi, len(labels), endpoint=False)
     ang_c = np.append(ang, ang[0])
-
-    fig, ax = plt.subplots(figsize=(8.6, 8.4), subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
-    for vals, color, name in [(a, STAR, star), (b, DOUBLE, double)]:
+    for vals, color, name in [(a, STAR, star), (b, DOUBLE, other)]:
         v = np.append(vals, vals[0])
-        ax.plot(ang_c, v, color=color, lw=2.2, label=name)
+        ax.plot(ang_c, v, color=color, lw=1.8 if small else 2.2, label=name)
         ax.fill(ang_c, v, color=color, alpha=0.12)
-        ax.scatter(ang, vals, s=46, color=color, edgecolor=SURFACE, linewidth=2, zorder=3)
+        ax.scatter(ang, vals, s=24 if small else 46, color=color, edgecolor=SURFACE,
+                   linewidth=1.5, zorder=3)
     ax.set_ylim(0, 100)
     ax.set_yticks([25, 50, 75, 100])
-    ax.set_yticklabels(["25", "50", "75", "100th pct"], color=MUTED, fontsize=9)
+    ax.set_yticklabels([] if small else ["25", "50", "75", "100th pct"], color=MUTED, fontsize=9)
     ax.set_rlabel_position(180 / len(labels))
     ax.set_xticks(ang)
-    ax.set_xticklabels(labels, fontsize=12, color=INK)
-    ax.tick_params(axis="x", pad=14)
+    short = [l.split("\n")[0] for l in labels] if small else labels
+    ax.set_xticklabels(short, fontsize=9.5 if small else 12, color=INK_2 if small else INK)
+    ax.tick_params(axis="x", pad=4 if small else 14)
     ax.grid(color=GRID, lw=0.8)
     ax.spines["polar"].set_color(GRID)
+    return int((np.abs(a - b) <= 15).sum())
 
-    close = (gap <= 15).sum()
-    fig.suptitle(f"{double} matches {star} on {close} of {len(labels)} movement traits",
+
+def radar(d, star, double):
+    pct = percentiles(d)
+    a, b = pct.loc[star].to_numpy(), pct.loc[double].to_numpy()
+    sim = pair_sim(d, star, double)
+
+    fig, ax = plt.subplots(figsize=(8.6, 8.4), subplot_kw=dict(polar=True))
+    close = draw_radar(ax, a, b, star, double)
+    fig.suptitle(f"{double} matches {star} on {close} of {len(RADAR)} movement traits",
                  fontsize=16, fontweight="bold", x=0.03, ha="left", y=0.985)
     fig.text(0.03, 0.925, f"Percentile among 110 WRs (0–100). Cosine similarity of full fingerprints: "
              f"{sim:.2f}. 'Match' = within 15 percentile points.", color=INK_2, fontsize=11)
     ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.17), ncol=2, frameon=False, fontsize=12)
     fig.subplots_adjust(top=0.82, bottom=0.12)
-    path = OUT / f"radar_{slug(star)}_vs_{slug(double)}.png"
+    return save(fig, f"radar_{slug(star)}_vs_{slug(double)}.png")
+
+
+def save(fig, name):
+    path = OUT / name
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
     print(f"Saved -> {path.relative_to(ROOT)}")
+    return path
 
 
 # ---------------------------------------------------------- 3. budget table
@@ -400,6 +427,328 @@ def route_overlay(d, star, double):
     print(f"Saved -> {path.relative_to(ROOT)}")
 
 
+# ------------------------------------------------------- 6. training data
+FEATURE_LABELS = {
+    "release_speed": "Release speed (yd/s at 1.0 s)",
+    "release_accel": "Release burst (peak accel, yd/s²)",
+    "top_speed": "Top speed (yd/s)",
+    "avg_speed": "Average speed (yd/s)",
+    "max_decel": "Hardest braking (yd/s²)",
+    "cut_sharpness": "Sharpest cut (degrees in 1 s)",
+    "speed_kept_in_cut": "Speed kept through cut (share)",
+    "straightness": "Straightness (1 = straight line)",
+    "route_time": "Route time, snap to throw (s)",
+}
+
+
+def routes_per_wr(d):
+    """How many routes each WR ran; only WRs past the cutoff get a fingerprint."""
+    n = d["feats"].groupby("nflId").size()
+    cut = fpr.MIN_ROUTES
+    kept, total = int((n >= cut).sum()), len(n)
+    share = n[n >= cut].sum() / n.sum()
+    bins = np.arange(0, n.max() + 20, 10)
+
+    fig, ax = plt.subplots(figsize=(11, 5.2))
+    ax.hist(n[n < cut], bins=bins, color=CHANCE, rwidth=0.88, label=f"Under {cut} routes: left out")
+    ax.hist(n[n >= cut], bins=bins, color=STAR, rwidth=0.88, label=f"{cut}+ routes: fingerprinted")
+    ax.axvline(cut, color=INK_2, lw=1.2)
+    ax.text(cut + 2, ax.get_ylim()[1] * 0.92, f"cutoff = {cut} routes", color=INK_2, fontsize=11)
+    ax.set_xlabel("Routes run, weeks 1–8 (after cleaning)")
+    ax.set_ylabel("Number of WRs")
+    ax.yaxis.set_major_locator(matplotlib.ticker.MaxNLocator(integer=True))
+    ax.yaxis.grid(True, color=GRID, lw=0.8)
+    ax.set_axisbelow(True)
+    ax.legend(frameon=False, loc="upper right")
+    fig.suptitle(f"{kept} of {total} WRs ran {cut}+ routes, enough for a reliable fingerprint",
+                 fontsize=15.5, fontweight="bold", x=0.01, ha="left", y=0.995)
+    fig.text(0.01, 0.92, f"Those {kept} WRs ran {share:.0%} of all {n.sum():,} routes. "
+             f"Fewer routes = a noisy average, so the rest are left out.", color=INK_2, fontsize=11)
+    fig.subplots_adjust(top=0.84)
+    return save(fig, "routes_per_wr.png")
+
+
+def _one_route(d, star):
+    """A typical route with a real cut for this WR, as tracking frames."""
+    f = d["feats"]
+    wid = int(f.loc[f["displayName"] == star, "nflId"].iloc[0])
+    mine = f[(f["nflId"] == wid) & (f["has_cut"] == 1) & f["route_time"].between(2.6, 3.8)]
+    allr = pd.read_parquet(OUT / "wr_routes.parquet", filters=[("nflId", "==", wid)])
+    allr = allr[(allr["frameId"] >= allr["snapFrame"]) & (allr["frameId"] <= allr["endFrame"])]
+    depth = allr.groupby(["gameId", "playId"])["x"].agg(lambda x: x.max() - x.iloc[0]).rename("depth")
+    mine = mine.join(depth, on=["gameId", "playId"])
+    mine = mine[mine["depth"] >= 8]
+    # Most typical of his routes: closest to his own average on every continuous feature.
+    cols = list(FEATURE_LABELS)
+    z = (mine[cols] - f[cols].mean()) / f[cols].std()
+    zbar = (f.loc[f["nflId"] == wid, cols].mean() - f[cols].mean()) / f[cols].std()
+    pick = mine.loc[((z - zbar) ** 2).sum(axis=1).idxmin()]
+    r = allr[(allr["gameId"] == pick.gameId) & (allr["playId"] == pick.playId)]
+    r = r.sort_values("frameId").reset_index(drop=True)
+    x0, y0 = r["x"].iloc[0], r["y"].iloc[0]
+    side = 1 if y0 < 53.3 / 2 else -1
+    r["down"], r["inside"] = r["x"] - x0, (r["y"] - y0) * side
+    r["t"] = np.arange(len(r)) / 10
+    r["ds"] = r["s"].diff() * 10
+    ahead = r["dir"].shift(-10)
+    turn = (((ahead - r["dir"]) + 180) % 360 - 180).abs()
+    r["turn"] = turn.where((r.index >= 10) & (r["s"] > 3) & ahead.notna())
+    return r, pick
+
+
+def route_anatomy(d, star):
+    """Raw tracking for one route -> the features the model sees."""
+    r, pick = _one_route(d, star)
+    c = int(r["turn"].idxmax())                       # cut window = frames c .. c+10
+    rel, top = 10, int(r["s"].idxmax())
+    brake = int(r.loc[1:, "ds"].idxmin())
+
+    fig = plt.figure(figsize=(15.5, 6.4))
+    gs = fig.add_gridspec(1, 3, width_ratios=[0.8, 1.45, 0.95], wspace=0.28)
+    ax0, ax1, ax2 = fig.add_subplot(gs[0]), fig.add_subplot(gs[1]), fig.add_subplot(gs[2])
+
+    # 1. Path
+    ax0.plot(r["inside"], r["down"], color=STAR, lw=2.2)
+    w = r.loc[c:c + 10]
+    ax0.plot(w["inside"], w["down"], color=INK, lw=7, alpha=0.15, solid_capstyle="round")
+    ax0.scatter(r["inside"], r["down"], s=12, color=STAR, edgecolor="white", linewidth=0.5, zorder=3)
+    ax0.scatter([0], [0], s=60, color=INK, zorder=4)
+    ax0.scatter(r["inside"].iloc[-1], r["down"].iloc[-1], s=60, facecolor="white", edgecolor=STAR,
+                lw=2, zorder=4)
+    ax0.annotate("snap", (0, 0), (8, -12), textcoords="offset points", fontsize=10, color=INK_2)
+    ax0.annotate("1.0 s: release", (r["inside"][rel], r["down"][rel]), (10, 0),
+                 textcoords="offset points", fontsize=10, color=INK_2, va="center")
+    ax0.annotate(f"sharpest cut\n{pick.cut_sharpness:.0f}° in 1 s", (w["inside"].mean(), w["down"].mean()),
+                 (14, -16), textcoords="offset points", fontsize=10, color=INK)
+    ax0.annotate("throw", (r["inside"].iloc[-1], r["down"].iloc[-1]), (-10, 8), ha="right",
+                 textcoords="offset points", fontsize=10, color=INK_2)
+    ax0.set_aspect("equal")
+    pad = 3
+    ax0.set_xlim(min(-pad, r["inside"].min() - pad), max(pad, r["inside"].max() + pad + 3))
+    ax0.set_ylim(min(-1, r["down"].min() - 1), r["down"].max() + 2)
+    ax0.set_xlabel("yards (+ = toward middle)")
+    ax0.set_ylabel("yards downfield")
+    ax0.set_title("1. The path (dots every 0.1 s)", loc="left", fontsize=12.5, color=INK)
+    ax0.grid(color=GRID, lw=0.8)
+
+    # 2. Speed over time
+    ax1.axvspan(r["t"][c], r["t"][min(c + 10, len(r) - 1)], color=GRID, alpha=0.7, lw=0)
+    ax1.plot(r["t"], r["s"], color=STAR, lw=2.2)
+    ax1.scatter(r["t"], r["s"], s=12, color=STAR, edgecolor="white", linewidth=0.5, zorder=3)
+    marks = [(rel, f"release speed {r['s'][rel]:.1f} yd/s", (10, -18)),
+             (top, f"top speed {r['s'][top]:.1f} yd/s", (-30, 12)),
+             (brake, f"hardest braking {pick.max_decel:.1f} yd/s²", (10, -22))]
+    for i, text, off in marks:
+        ax1.scatter(r["t"][i], r["s"][i], s=60, facecolor="white", edgecolor=INK, lw=1.5, zorder=4)
+        ax1.annotate(text, (r["t"][i], r["s"][i]), off, textcoords="offset points", fontsize=10.5,
+                     color=INK)
+    ax1.text(r["t"][c] + 0.03, 0.3, f"cut window\nspeed kept {pick.speed_kept_in_cut:.0%}",
+             fontsize=10, color=INK_2)
+    ax1.set_xlabel("seconds since snap")
+    ax1.set_ylabel("speed (yd/s)")
+    ax1.set_ylim(0, r["s"].max() + 1.5)
+    ax1.set_title("2. Speed every 0.1 s", loc="left", fontsize=12.5, color=INK)
+    ax1.grid(color=GRID, lw=0.8)
+
+    # 3. The row of numbers the model trains on
+    ax2.axis("off")
+    ax2.set_title("3. One training row", loc="left", fontsize=12.5, color=INK)
+    rows = [(FEATURE_LABELS[k].split(" (")[0], pick[k]) for k in FEATURE_LABELS]
+    rows.insert(6, ("Has a cut (>45°)", pick.has_cut))
+    fmt = {"Speed kept through cut": "{:.0%}", "Sharpest cut": "{:.0f}°", "Has a cut (>45°)": "{:.0f}",
+           "Straightness": "{:.2f}"}
+    y = 0.95
+    for name, val in rows:
+        ax2.text(0.0, y, name, fontsize=11, color=INK_2, transform=ax2.transAxes)
+        ax2.text(1.0, y, fmt.get(name, "{:.1f}").format(val), fontsize=11, color=INK, ha="right",
+                 fontweight="bold", transform=ax2.transAxes)
+        ax2.plot([0, 1], [y - 0.025, y - 0.025], color=GRID, lw=0.8, transform=ax2.transAxes)
+        y -= 0.088
+    ax2.text(0.0, y - 0.02, f"label = {star}", fontsize=11, color=STAR, fontweight="bold",
+             transform=ax2.transAxes)
+
+    for ax in (ax0, ax1):
+        for sp in ax.spines.values():
+            sp.set_visible(False)
+        ax.tick_params(length=0)
+    fig.suptitle(f"How one route becomes training data: a typical {star} route, {pick.route_time:.1f} s from snap to throw",
+                 fontsize=16, fontweight="bold", x=0.01, ha="left", y=1.0)
+    fig.text(0.01, 0.925, "Tracking gives position and speed 10 times a second. We boil each route down to "
+             "10 numbers about HOW he moves, never WHERE he lines up.", color=INK_2, fontsize=11)
+    fig.subplots_adjust(top=0.83, left=0.05, right=0.98)
+    return save(fig, f"route_anatomy_{slug(star)}.png")
+
+
+def feature_distributions(d, star, double):
+    """Every route's features (gray) with the two players' averages marked."""
+    f, raw = d["feats"], d["raw"].set_index("displayName")
+    feats = list(FEATURE_LABELS)
+    close = 0
+    fig, axes = plt.subplots(3, 3, figsize=(14, 9.6))
+    for ax, k in zip(axes.flat, feats):
+        v = f[k].dropna()
+        lo, hi = v.quantile([0.01, 0.99])
+        ax.hist(v.clip(lo, hi), bins=40, color=CHANCE, rwidth=0.9)
+        a, b = raw.loc[star, f"{k}_mean"], raw.loc[double, f"{k}_mean"]
+        ax.axvline(a, color=STAR, lw=2.4)
+        ax.axvline(b, color=DOUBLE, lw=2.4)
+        same = abs(a - b) <= 0.5 * raw[f"{k}_mean"].std()     # within half a player-to-player SD
+        close += same
+        ax.set_title(FEATURE_LABELS[k] + ("   ✓ close" if same else ""), fontsize=11.5, loc="left",
+                     color=INK if same else INK_2, fontweight="bold" if same else "normal")
+        ax.set_yticks([])
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(length=0, labelsize=10)
+    handles = [plt.Line2D([], [], color=STAR, lw=2.4), plt.Line2D([], [], color=DOUBLE, lw=2.4),
+               plt.Rectangle((0, 0), 1, 1, color=CHANCE)]
+    fig.legend(handles, [f"{star} average", f"{double} average", f"All {len(f):,} routes"],
+               loc="upper right", bbox_to_anchor=(0.99, 0.95), ncol=3, frameon=False, fontsize=11)
+    fig.suptitle(f"The training data: {double}'s average route sits next to {star}'s on {close} of "
+                 f"{len(feats)} features", fontsize=16, fontweight="bold", x=0.01, ha="left", y=0.995)
+    fig.text(0.01, 0.955, "Gray = every route in the data. '✓ close' = averages within half the "
+             "typical gap between two WRs.", color=INK_2, fontsize=11)
+    fig.subplots_adjust(top=0.88, hspace=0.5, wspace=0.12, left=0.02, right=0.99)
+    return save(fig, f"feature_distributions_{slug(star)}_vs_{slug(double)}.png")
+
+
+def speed_profile(d, star, double, t_max=3.0):
+    """Average speed by time since snap: star, his match, his least similar WR, and the league."""
+    keys = d["feats"][["gameId", "playId", "nflId"]]
+    keys = keys[keys["nflId"].isin(d["z"]["nflId"])]
+    r = pd.read_parquet(OUT / "wr_routes.parquet",
+                        columns=["gameId", "playId", "nflId", "frameId", "snapFrame", "s"]).merge(keys)
+    r["t"] = ((r["frameId"] - r["snapFrame"]) / 10).round(1)
+    r = r[r["t"] <= t_max]
+    league = r.groupby("t")["s"].quantile([0.25, 0.5, 0.75]).unstack()
+    mine = r.groupby(["nflId", "t"])["s"].mean().unstack(0)
+
+    p = d["pairs"][d["pairs"]["displayName"] == star]
+    unlike = p.loc[p["similarity"].idxmin(), "match_displayName"]
+    curve = lambda name: mine[d["ids"][name]]
+
+    fig, ax = plt.subplots(figsize=(11.5, 6))
+    ax.fill_between(league.index, league[0.25], league[0.75], color=GRID, alpha=0.8, lw=0,
+                    label="Middle 50% of all fingerprinted WRs")
+    ax.plot(league.index, league[0.5], color=MUTED, lw=1.2, label="Median WR")
+    lines = [(star, STAR, 2.6, ""), (double, DOUBLE, 2.6, ""), (unlike, INK_2, 1.6, "  (least similar)")]
+    ends = sorted((curve(n).iloc[-1], i) for i, (n, *_) in enumerate(lines))
+    label_y, last = {}, -np.inf
+    for y_end, i in ends:                                   # keep end labels >= 0.3 yd/s apart
+        last = max(y_end, last + 0.3)
+        label_y[i] = last
+    for i, (name, color, lw, tag) in enumerate(lines):
+        y = curve(name)
+        ax.plot(y.index, y, color=color, lw=lw)
+        ax.text(t_max + 0.04, label_y[i], name + tag, color=color, fontsize=11, va="center",
+                fontweight="bold")
+    gap = (curve(star) - curve(double)).abs().max()
+    gap_u = (curve(star) - curve(unlike)).abs().max()
+    ax.set_xlim(0, t_max + 1.1)
+    ax.set_xticks(np.arange(0, t_max + 0.01, 0.5))
+    ax.set_xlabel("seconds since snap")
+    ax.set_ylabel("average speed (yd/s)")
+    ax.grid(color=GRID, lw=0.8)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    ax.tick_params(length=0)
+    ax.legend(loc="lower right", frameon=False, fontsize=10.5)
+    diff = curve(double) - curve(star)
+    early, late = diff[diff.index <= 1.2].abs().max(), diff[diff.index > 1.2]
+    if gap <= 0.4:
+        title = f"{double} speeds up like {star}: their curves never differ by more than {gap:.1f} yd/s"
+    else:
+        faster = "faster" if late.mean() > 0 else "slower"
+        title = (f"{double} matches {star} off the line (within {early:.1f} yd/s in the first 1.2 s), "
+                 f"then runs {faster}")
+    fig.suptitle(title, fontsize=15.5, fontweight="bold", x=0.01, ha="left", y=0.995)
+    fig.text(0.01, 0.925, f"Average speed every 0.1 s after the snap, over all their routes. For contrast, "
+             f"his least similar WR ({unlike}) differs by up to {gap_u:.1f} yd/s.", color=INK_2, fontsize=11)
+    fig.subplots_adjust(top=0.85, right=0.97)
+    return save(fig, f"speed_profile_{slug(star)}_vs_{slug(double)}.png")
+
+
+def compare_matches(d, star, k=6):
+    """Star vs each of his k closest non-teammates, one small radar each."""
+    pct = percentiles(d)
+    apy = d["salary"].set_index("displayName")["apy"]
+    top = d["pairs"][d["pairs"]["displayName"] == star].nsmallest(k, "rank").reset_index(drop=True)
+    a = pct.loc[star].to_numpy()
+
+    ncol = 3
+    nrow = int(np.ceil(k / ncol))
+    fig, axes = plt.subplots(nrow, ncol, figsize=(15, 5.6 * nrow), subplot_kw=dict(polar=True))
+    for ax, m in zip(np.ravel(axes), top.itertuples()):
+        close = draw_radar(ax, a, pct.loc[m.match_displayName].to_numpy(), star, m.match_displayName,
+                           small=True)
+        tags = ["✓ stable" if m.stable else "not stable"] + (["hub"] if m.match_is_hub else [])
+        ax.set_title(f"{m.rank}. {m.match_displayName} ({m.match_team})\n"
+                     f"sim {m.similarity:.2f} · {money(apy[m.match_displayName])} · "
+                     f"{' · '.join(tags)} · {close}/6 traits",
+                     fontsize=11.5, color=INK, pad=22, fontweight="bold" if m.stable else "normal")
+    for ax in np.ravel(axes)[len(top):]:
+        ax.set_visible(False)
+
+    stable = top.loc[top["stable"], "match_displayName"].tolist()
+    if len(stable) == 1:
+        verdict = f"only {stable[0]} holds up across the season"
+    elif stable:
+        verdict = f"{len(stable)} of them hold up across the season"
+    else:
+        verdict = "none holds up across the season, so treat them as leads"
+    fig.suptitle(f"The {k} non-teammates who move most like {star}: {verdict}",
+                 fontsize=16, fontweight="bold", x=0.01, ha="left", y=1.0)
+    fig.text(0.01, 0.955 if nrow > 1 else 0.92,
+             f"Blue = {star} ({money(apy[star])} APY); orange = the match. Percentiles among 110 WRs. "
+             f"'stable' = in his top 5 in both halves of the games in at least half of 20 random splits. "
+             f"'hub' = resembles many WRs.", color=INK_2, fontsize=10.5)
+    fig.subplots_adjust(top=0.86 if nrow > 1 else 0.75, hspace=0.55, wspace=0.35)
+    return save(fig, f"compare_{slug(star)}_top{k}.png")
+
+
+def ablation(d):
+    """Split-half test with feature groups removed: is it the player, or his QB?"""
+    f = fpr.load_routes()
+    speed = ["release_speed", "release_accel", "top_speed", "avg_speed"]
+    path = ["max_decel", "cut_sharpness", "speed_kept_in_cut", "has_cut", "straightness"]
+    variants = [("All features", []),
+                ("Without route time (QB timing)", ["route_time"]),
+                ("Speed features only", path + ["route_time"]),
+                ("Cut and path features only", speed + ["route_time"])]
+    rows = []
+    for name, drop in variants:
+        r, _ = fpr.split_half_test(f, drop)
+        rows.append({"fingerprint": name, "top1": r["accuracy"][0], "top1_x": r["x_chance"][0],
+                     "top5": r["accuracy"][1], "team": r["accuracy"][2], "team_x": r["x_chance"][2]})
+    t = pd.DataFrame(rows)
+    t.to_csv(OUT / "ablation.csv", index=False)
+
+    fig, ax = plt.subplots(figsize=(11, 4.6))
+    y = np.arange(len(t))[::-1]
+    ax.barh(y, t["top1_x"], height=0.55, color=STAR)
+    ax.axvline(1, color=MUTED, lw=1.2)
+    ax.text(1.1, y[0] + 0.42, "random = 1×", color=MUTED, fontsize=10)
+    for yi, rr in zip(y, t.itertuples()):
+        ax.text(rr.top1_x + 0.2, yi, f"{rr.top1_x:.1f}× chance  ·  vs. teammates {rr.team_x:.2f}×",
+                va="center", fontsize=11, color=INK)
+    ax.set_yticks(y)
+    ax.set_yticklabels(t["fingerprint"], fontsize=12, color=INK)
+    ax.set_xlim(0, t["top1_x"].max() * 1.55)
+    ax.set_xlabel("Top-1 accuracy as a multiple of chance (split-half test, unseen games)")
+    ax.xaxis.grid(True, color=GRID, lw=0.8)
+    ax.set_axisbelow(True)
+    ax.tick_params(length=0)
+    ax.spines["left"].set_visible(False)
+    no_rt = t.iloc[1]
+    fig.suptitle(f"It's the player, not his QB: without route time we still find him at "
+                 f"{no_rt.top1_x:.0f}× chance", fontsize=15.5, fontweight="bold", x=0.01, ha="left", y=1.0)
+    fig.text(0.01, 0.885, f"Route time depends on when the QB throws. Dropping it barely moves accuracy, and the "
+             f"teammates-only score rises ({t.team_x[0]:.2f}× → {no_rt.team_x:.2f}×).\nSpeed carries most "
+             f"of the signal; cuts and paths add a real but smaller part.", color=INK_2, fontsize=10.5)
+    fig.subplots_adjust(top=0.76, left=0.26)
+    save(fig, "ablation.png")
+    return t
+
+
 # ------------------------------------------------------------------- main
 def main(star="Cooper Kupp"):
     d = load()
@@ -413,6 +762,12 @@ def main(star="Cooper Kupp"):
     budget_table(d)
     identification(d)
     route_overlay(d, star, double)
+    routes_per_wr(d)
+    route_anatomy(d, star)
+    feature_distributions(d, star, double)
+    speed_profile(d, star, double)
+    compare_matches(d, star)
+    ablation(d)
 
 
 if __name__ == "__main__":
