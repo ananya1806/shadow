@@ -1,7 +1,8 @@
-pandas
-numpy
-pyarrow
-scikit-learn
-scipy
-matplotlib
-plotly
+# Main pipeline (Python 3.9). Exact versions used to produce outputs/.
+pandas==2.3.3
+numpy==2.0.2
+pyarrow==21.0.0
+scikit-learn==1.6.1
+scipy==1.13.1
+matplotlib==3.9.4
+plotly==7.1.0

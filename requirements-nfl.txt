@@ -1,0 +1,4 @@
+# Only for src/fetch_external.py. nfl_data_py pins pandas<2, so keep it in its own venv.
+nfl_data_py==0.3.3
+pandas==1.5.3
+numpy==1.26.4
