@@ -1,0 +1,16 @@
+star,star_team,star_apy,weeks_missed,weeks_injured,weeks_out,doppelganger,dopp_team,dopp_apy,similarity,rank,stable_rate,stable,built_like,near_identical,savings
+Amari Cooper,DAL,20.000,0,2,0,Nick Westbrook-Ikhine,TEN,0.764,0.717,2,0.250,False,True,False,19.236
+Keenan Allen,LAC,20.025,0,2,0,Mohamed Sanu,SF,1.140,0.848,2,0.150,False,True,False,18.885
+Robert Woods,LA,16.250,0,0,0,Bryan Edwards,LV,1.157,0.760,1,0.100,False,False,False,15.093
+Brandin Cooks,HOU,16.200,0,4,0,Mecole Hardman,KC,1.249,0.809,1,0.250,False,True,False,14.951
+Chris Godwin,TB,15.983,0,4,0,Diontae Johnson,PIT,1.070,0.709,1,0.300,False,False,False,14.913
+Cooper Kupp,LA,15.750,0,0,0,K.J. Osborn,MIN,0.891,0.816,1,0.500,True,True,False,14.859
+DeAndre Hopkins,ARI,27.250,0,7,0,Corey Davis,NYJ,12.500,0.774,1,0.100,False,True,False,14.750
+Mike Evans,TB,16.500,0,0,0,KhaDarel Hodge,DET,2.133,0.826,2,0.100,False,False,False,14.367
+Stefon Diggs,BUF,14.400,0,5,0,Chester Rogers,TEN,0.990,0.793,1,0.000,False,True,False,13.410
+Robby Anderson,CAR,14.750,0,0,0,Laviska Shenault,JAX,1.924,0.786,1,0.250,False,False,False,12.826
+Tyler Lockett,SEA,17.300,0,1,0,Marvin Jones,JAX,6.250,0.748,4,0.050,False,False,False,11.050
+Tyler Boyd,CIN,10.750,0,0,0,Olamide Zaccheaus,ATL,0.587,0.901,1,0.400,False,False,True,10.163
+Nelson Agholor,NE,11.000,0,2,0,John Ross,NYG,2.250,0.877,1,0.300,False,True,True,8.750
+Sterling Shepard,NYG,10.250,3,5,2,Calvin Ridley,ATL,2.725,0.812,1,0.150,False,False,False,7.525
+Corey Davis,NYJ,12.500,1,1,0,DeVonta Smith,PHI,5.035,0.798,1,0.150,False,False,False,7.465
