@@ -82,8 +82,16 @@ One-off checks whose results are quoted in our notes. They read the pipeline out
 | `hub_check.py` | Whether hub WRs are near league average (they are not; +0.42 correlation with distance from average) |
 | `peek_contracts.py`, `peek_names.py` | Contract fields, birth-date formats, and name mismatches for the salary join |
 
+## Charts, notebook and website
+
+```bash
+.venv/bin/python src/visuals.py          # -> outputs/*.png, outputs/wr_map.html
+.venv/bin/python src/website.py          # -> docs/ (the GitHub Pages site)
+.venv/bin/jupyter nbconvert --to notebook --execute demo.ipynb --output demo.ipynb
+```
+`demo.ipynb` runs every step above in order (about 3 minutes).
+
 ## Known gaps
 
-- `src/visuals.py`, `demo.ipynb` and `README.md` are not written yet.
 - `budget.py` uses the most recent contract signed in or before 2021, so fifth-year
   options are missed (Mike Williams shows $4.9M instead of about $15.7M).
