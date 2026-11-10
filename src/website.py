@@ -372,7 +372,6 @@ def main():
     star, dbl = FEATURED
     s1, s2 = (x.lower().replace(".", "").replace(" ", "_") for x in FEATURED)
     for src, dst in [("identification.png", "identification.png"),
-                     ("budget_table.png", "budget_table.png"),
                      (f"radar_{s1}_vs_{s2}.png", "radar.png"),
                      (f"route_overlay_{s1}_vs_{s2}.png", "route_overlay.png")]:
         shutil.copy(OUT / src, ASSETS / dst)
@@ -403,7 +402,7 @@ def main():
     assert "{{" not in page, "unfilled placeholder in page"
     (DOCS / "index.html").write_text(page, encoding="utf-8")
     size = (DOCS / "index.html").stat().st_size / 1024
-    print(f"Saved -> docs/index.html ({size:.0f} KB), docs/wr_map.html, docs/assets/ (4 images)")
+    print(f"Saved -> docs/index.html ({size:.0f} KB), docs/wr_map.html, docs/assets/ (3 images)")
 
 
 if __name__ == "__main__":
