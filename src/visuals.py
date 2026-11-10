@@ -167,6 +167,7 @@ def wr_map(d):
     path = OUT / "wr_map.html"
     fig.write_html(path, include_plotlyjs="cdn")
     print(f"Saved -> {path.relative_to(ROOT)}")
+    return fig
 
 
 # ---------------------------------------------------------------- 2. radar
