@@ -31,6 +31,7 @@ CUT_DEGREES = 45         # a windowed turn above this counts as a real cut
 MAX_DECEL_FLOOR = -10.0  # yd/s^2; anything harsher is contact or a tracking blip
 KEPT_CLIP = (0.0, 1.2)
 DROP_END_EVENTS = ["run"]  # QB took off: not a real pass route. Sacks are kept.
+MAX_SNAP_SPEED = 2.0     # yd/s; faster = pre-snap motion, which fakes the release features
 
 FEATURES = ["release_speed", "release_accel", "top_speed", "avg_speed", "max_decel",
             "cut_sharpness", "speed_kept_in_cut", "has_cut", "straightness", "route_time"]
@@ -46,6 +47,13 @@ def drop_qb_runs(d):
     end = d.groupby(ROUTE)["event"].last().astype(str).rename("end_event")
     keep = end[~end.isin(DROP_END_EVENTS)].index
     return d.set_index(ROUTE).loc[keep].reset_index(), int((~end.index.isin(keep)).sum())
+
+
+def drop_presnap_motion(d):
+    """Remove routes where the WR was already moving faster than 2 yd/s at the snap."""
+    snap_speed = d[d["frameId"] == d["snapFrame"]].set_index(ROUTE)["s"]
+    keep = snap_speed[snap_speed <= MAX_SNAP_SPEED].index
+    return d.set_index(ROUTE).loc[keep].reset_index(), int((snap_speed > MAX_SNAP_SPEED).sum())
 
 
 def cut_features(d, g, k):
@@ -143,6 +151,8 @@ def main():
     d = pd.read_parquet(IN_FILE)
     d, n_runs = drop_qb_runs(d)
     print(f"Dropped {n_runs:,} routes on QB-run plays")
+    d, n_motion = drop_presnap_motion(d)
+    print(f"Dropped {n_motion:,} routes with pre-snap motion (> {MAX_SNAP_SPEED} yd/s at snap)")
     f = build_features(d)
     f.to_parquet(OUT_FILE, index=False)
 
