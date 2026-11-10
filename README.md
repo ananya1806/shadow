@@ -1,4 +1,4 @@
-# WR Doppelgänger
+# WR SHADOW
 
 **Who moves like whom, and who does it for less.** Movement fingerprints for NFL wide receivers, built from 2021 Next Gen Stats tracking data.
 
