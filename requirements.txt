@@ -8,4 +8,4 @@ matplotlib==3.9.4
 plotly==7.1.0
 # To run demo.ipynb
 ipykernel==6.31.0
-nbconvert==7.17.1
+nbconvert==7.17.2
