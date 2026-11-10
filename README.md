@@ -1,12 +1,12 @@
 # WR SHADOW
 
-**Who moves like whom, and who does it for less.** Movement fingerprints for NFL wide receivers, built from 2021 Next Gen Stats tracking data.
+**Who moves like whom, and who does it for less in case of injury.** Movement fingerprints for NFL wide receivers, built from 2021 Next Gen Stats tracking data.
 
 **🌐 Website:** https://chirantan2003.github.io/shadow/ · **📓 Notebook:** [`demo.ipynb`](demo.ipynb)
 
 ## Problem, solution, what we made
 
-- **Problem:** Scouts compare receivers by eye ("he moves like Cooper Kupp"), and when a star is too expensive or gets hurt, there is no measurable way to find who can move the same way for less.
+- **Problem:** Scouts compare receivers by eye ("he moves like Cooper Kupp"), and when a star is too expensive or gets hurt, there is no measurable way to find who can move the same way for less, keeping the team training and strategy intact.
 - **Solution:** Turn every route into movement-only numbers (release, top speed, braking, cuts, path straightness), average them into a 28-number fingerprint per WR, and compare fingerprints with cosine similarity, excluding teammates.
 - **What we made:** A fingerprint for 110 receivers (18,053 routes, 2021 weeks 1–8), a doppelgänger finder, a budget-replacement table using public 2021 salaries, and a website to explore it all.
 - **Insight:** Movement style is a real, measurable trait: from half of a receiver's games we pick him out of 110 at **11× chance** in his other half, driven mostly by his release and top speed.
